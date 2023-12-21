@@ -56,7 +56,9 @@ pipeline {
                    withDockerRegistry(credentialsId: 'docker-jenkins') { 
                        
                        buildNumber = "${BUILD_NUMBER}"
-                       
+
+                       sh "sudo chmod 666 /var/run/docker.sock"
+
                        sh "docker build --build-arg TMDB_V3_API_KEY=489362a14e0518180c51d1392ba8a3da -t kaushikbl/netflix:${buildNumber} ."
                     
                        sh "docker push kaushikbl/netflix:${buildNumber}"
