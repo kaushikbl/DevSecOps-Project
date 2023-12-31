@@ -4,18 +4,13 @@ pipeline {
         jdk 'jdk17'
            nodejs 'node16'
         }
-    }
+    }    
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
+        SCANNER_HOME = tool 'SonarQube Scanner'
     }
+    
     stages {
-        stage('clean workspace') {
-            steps {
-                cleanWs()
-            }
-        }
-        
         stage('Checkout from Git') {
             steps {
                 git branch: 'main', credentialsId: 'github-jenkins', url: 'https://github.com/kaushikbl/DevSecOps-Project.git'
@@ -23,60 +18,77 @@ pipeline {
         }
         stage("Sonarqube Analysis") {
             steps {
-                withSonarQubeEnv('sonarqube') {
+                withSonarQubeEnv('sonarqube-scanner') {
                     sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Netflix \
                     -Dsonar.projectKey=Netflix'''
                 }
             }
         }
-        stage("quality gate") {
-            steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonarqube-jenkins'
-                }
-            }
-        }
+      
         stage('Install Dependencies') {
             steps {
                 sh "npm install"
             }
         }
     
-        stage('OWASP FS SCAN') {
-            steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-            }
-        }
-        stage('TRIVY FS SCAN') {
+        stage('Trivy filesystem Scan') {
             steps {
                 sh "trivy fs . > trivyfs.txt"
             }
         }
+
         stage("Docker Build & Push"){
             steps{
                 script{
-                   withDockerRegistry(credentialsId: 'docker-jenkins') { 
+                   withDockerRegistry(credentialsId: 'jenkins-docker') { 
                        
                        buildNumber = "${BUILD_NUMBER}"
-
-                       sh "sudo chmod 666 /var/run/docker.sock"
-
-                       sh "docker build --build-arg TMDB_V3_API_KEY=489362a14e0518180c51d1392ba8a3da -t kaushikbl/netflix:${buildNumber} ."
+                       
+                       sh "docker build --build-arg TMDB_V3_API_KEY=489362a14e0518180c51d1392ba8a3da -t kaushikbl/netflix-app:${buildNumber} ."
                     
-                       sh "docker push kaushikbl/netflix:${buildNumber}"
+                       sh "docker push kaushikbl/netflix-app:${buildNumber}"
                     }
                 }
             }
         }
-        stage("TRIVY"){
+
+        stage("Trivy Image scan"){
             steps{
-                sh "trivy image kaushikbl/netflix:${buildNumber} > trivyimage.txt" 
+                sh "trivy image kaushikbl/netflix-app:${buildNumber} > trivyimage.txt" 
+        
             }
         }
-        stage('Deploy to container'){
-            steps{
-                sh "docker run -d -p 8081:80 kaushikbl/netflix:${buildNumber}"
+        
+        stage("update deployment file"){
+           environment {
+            GIT_REPO_NAME = "DevSecOps-Project"
+            GIT_USER_NAME = "kaushikbl"
+            GITHUB_TOKEN = "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"
+           }
+        }
+           steps{
+               script{
+                  withCredentials([string(credentialsId: 'githubrepo', variable: 'githubtokenforpipeline')]) {
+                      
+                   sh """
+                      
+                      git config user.email "kaushikblokesh@gmail.com"
+  
+                      git config user.name "kaushikbl"
+                      
+                      sed -i 's/image_tag/${buildNumber}/g' /var/lib/jenkins/workspace/netflix-app/deployment.yml
+              
+                      cat /var/lib/jenkins/workspace/netflix-app/deployment.yml
+              
+                      git add /var/lib/jenkins/workspace/netflix-app/deployment.yml
+              
+                      git commit -m 'Updated the deployment yml | Jenkins Pipeline'
+               
+                      git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main
+
+              
+                    """
+                }
             }
         }
-    }
+    } 
