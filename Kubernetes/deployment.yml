@@ -16,6 +16,6 @@ spec:
     spec:
       containers:
       - name: netflix-app
-        image: kaushikbl/netflix-app:67
+        image: kaushikbl/netflix-app:BUILD_TAG
         ports:
         - containerPort: 80
